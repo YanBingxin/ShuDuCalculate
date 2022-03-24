@@ -10,6 +10,13 @@ namespace 饼饼爱稳稳数独求解
 {
     public class MainViewModel : IViewModel, INotifyPropertyChanged
     {
+        #region 候选数
+        /// <summary>
+        /// 候选数
+        /// </summary>
+        private List<string>[,] AvailableList = new List<string>[9, 9];
+        #endregion
+
         #region 公共属性
         public string[,] ShuDu
         {
@@ -523,13 +530,13 @@ namespace 饼饼爱稳稳数独求解
         #region 命令方法
         private void Close()
         {
-            if (MessageBox.Show("您对这次服务满意吗，我只有听到你说满意才可以休眠(●—●)", "(●—●)休眠", MessageBoxButton.YesNoCancel) == MessageBoxResult.Yes)
-                m_view.Close();
+            SaveLastShudu();
+            m_view.Close();
         }
         private void ShuDuReste()
         {
-
-            ShuDu = new string[9, 9];
+            if (MessageBox.Show("确定要清空吗？", "询问", MessageBoxButton.OKCancel) == MessageBoxResult.OK)
+                ShuDu = new string[9, 9];
         }
         #endregion
 
@@ -538,750 +545,200 @@ namespace 饼饼爱稳稳数独求解
         {
             m_view = view;
             m_view.DataContext = this;
-            CommandRun = new RelayCommand(ShuDuCalculateEasy);
+            CommandRun = new RelayCommand(Refuse);
             CommandReset = new RelayCommand(ShuDuReste);
-            CommandMedium = new RelayCommand(ShuDuCalculateMedium);
+            CommandMedium = new RelayCommand(CalShuduAll);
             CommandClose = new RelayCommand(Close);
+
+            LoadLastShudu();
+        }
+        /// <summary>
+        /// 加载最后一次数独
+        /// </summary>
+        private void LoadLastShudu()
+        {
+            try
+            {
+                string data = Properties.Settings.Default.LastShudu;
+                if (!string.IsNullOrEmpty(data))
+                {
+                    var datas = data.Split(',');
+                    for (int i = 0; i < 9; i++)
+                    {
+                        for (int j = 0; j < 9; j++)
+                        {
+                            MainModel.ShuDu[i, j] = datas[j + i * 9];
+                        }
+                    }
+                    ShuDu = MainModel.ShuDu;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+        /// <summary>
+        /// 保存最后一次数独
+        /// </summary>
+        private void SaveLastShudu()
+        {
+            try
+            {
+                string data = string.Empty;
+                for (int i = 0; i < 9; i++)
+                {
+                    for (int j = 0; j < 9; j++)
+                    {
+                        data += MainModel.ShuDu[i, j] + ",";
+                    }
+                }
+                Properties.Settings.Default.LastShudu = data;
+                Properties.Settings.Default.Save();
+            }
+            catch (Exception)
+            {
+            }
         }
         #endregion
 
-        #region 简单算法
-        public void ShuDuCalculateEasy()
+        #region 还原
+        /// <summary>
+        /// 尝试准确破解和试错破解
+        /// </summary>
+        private void CalShuduAll()
+        {
+            MainModel.PreShuDu.Push((string[,])MainModel.ShuDu.Clone());
+
+            if (!CheckSudu())
+                return;
+            if (TryAvailable())
+            {
+                MessageBox.Show("恭喜，稳稳已经帮你搞定啦！");
+            }
+            else
+            {
+                MessageBox.Show("抱歉，饼饼已经尽力啦！");
+            }
+            ShuDu = MainModel.ShuDu;
+        }
+
+        private bool CheckSudu()
+        {
+            char start = 'A';
+            int count = 0;
+            for (int i = 0; i < 9; i++)
+            {
+                for (int j = 0; j < 9; j++)
+                {
+                    if (string.IsNullOrEmpty(ShuDu[i, j]))
+                    {
+                        count++;
+                    }
+                    else if (!GetAvailableList(i, j).Contains(ShuDu[i, j]))
+                    {
+                        MessageBox.Show(string.Format("数独初盘有冲突，请检查第{0}行，第{1}列", (char)(i + start), j + 1));
+                        return false;
+                    }
+                }
+            }
+            if (count > 81 - 17)
+                MessageBox.Show("数独初始数字<17个，答案不唯一");
+            return true;
+        }
+        /// <summary>
+        /// 还原
+        /// </summary>
+        public void Refuse()
+        {
+            if (MainModel.PreShuDu.Count > 0)
+            {
+                MainModel.ShuDu = MainModel.PreShuDu.Pop();
+                ShuDu = MainModel.ShuDu;
+            }
+        }
+        #endregion
+
+        #region 候选数枚举试错
+        private bool TryAvailable()
         {
             for (int i = 0; i < 9; i++)
             {
                 for (int j = 0; j < 9; j++)
                 {
-                    if (string.IsNullOrEmpty(MainModel.ShuDu[i, j]))
+                    if (!string.IsNullOrEmpty(ShuDu[i, j]))
+                        continue;
+                    var ava = GetAvailableList(i, j);
+                    if (ava.Count > 0)
                     {
-                        List<string> list = new List<string>() { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
-
-                        #region 行列宫排除
-                        //排除列中数字
-                        for (int row = 0; row < 9; row++)
+                        bool res = false; ;
+                        for (int index = 0; index < ava.Count; index++)
                         {
-                            if (list.Contains(MainModel.ShuDu[row, j]))
+                            MainModel.ShuDu[i, j] = ava[index];
+                            if (TryAvailable())
                             {
-                                list.Remove(MainModel.ShuDu[row, j]);
+                                res = true;
+                                break;
+                            }
+                            else
+                            {
+                                MainModel.ShuDu[i, j] = null;
                             }
                         }
-
-                        //排除行中数字
-                        for (int column = 0; column < 9; column++)
-                        {
-                            if (list.Contains(MainModel.ShuDu[i, column]))
-                            {
-                                list.Remove(MainModel.ShuDu[i, column]);
-                            }
-                        }
-
-                        //排除宫中数字
-                        for (int row = (i / 3 * 3); row < (i / 3 * 3 + 3); row++)
-                        {
-                            for (int column = (j / 3 * 3); column < (j / 3 * 3 + 3); column++)
-                            {
-                                if (list.Contains(MainModel.ShuDu[row, column]))
-                                {
-                                    list.Remove(MainModel.ShuDu[row, column]);
-                                }
-                            }
-                        }
-                        #endregion
-
-                        //获取唯一解
-                        if (list.Count == 1)
-                        {
-                            #region 唯一解算法
-                            MainModel.ShuDu[i, j] = list[0];
-                            ShuDu = MainModel.ShuDu;
-                            ShuDuCalculateEasy();
-                            return;
-                            #endregion
-                        }
-                        else
-                        {
-                            #region 行列夹逼算法
-                            //把所求数位置宫格的其他行列整合分类，存储行号列号
-                            List<string> list1, list2, list3, list4;
-                            int row1, row2, column1, column2;
-                            list1 = new List<string>();//row1
-                            list2 = new List<string>();//row2
-                            list3 = new List<string>();//column1
-                            list4 = new List<string>();//column2
-                            row1 = 0;
-                            row2 = 0;
-                            column1 = 0;
-                            column2 = 0;
-                            #region 准备工作，整合数据
-                            //row1 ready
-                            for (int row = (i / 3 * 3); row < (i / 3 * 3 + 2); row++)
-                            {
-                                if (row != i)
-                                {
-                                    for (int num = 0; num < 9; num++)
-                                    {
-                                        list1.Add(MainModel.ShuDu[row, num]);
-                                    }
-                                    row1 = row;
-                                    break;
-                                }
-                            }
-                            //row2
-                            for (int row = (i / 3 * 3 + 2); row > (i / 3 * 3); row--)
-                            {
-                                if (row != i)
-                                {
-                                    for (int num = 0; num < 9; num++)
-                                    {
-                                        list2.Add(MainModel.ShuDu[row, num]);
-                                    }
-                                    row2 = row;
-                                    break;
-                                }
-                            }
-                            //column1
-                            for (int column = (j / 3 * 3); column < (j / 3 * 3 + 2); column++)
-                            {
-                                if (column != j)
-                                {
-                                    for (int num = 0; num < 9; num++)
-                                    {
-                                        list3.Add(MainModel.ShuDu[num, column]);
-                                    }
-                                    column1 = column;
-                                    break;
-                                }
-                            }
-                            //column2
-                            for (int column = (j / 3 * 3 + 2); column > (j / 3 * 3); column--)
-                            {
-                                if (column != j)
-                                {
-                                    for (int num = 0; num < 9; num++)
-                                    {
-                                        list4.Add(MainModel.ShuDu[num, column]);
-                                    }
-                                    column2 = column;
-                                    break;
-                                }
-                            }
-
-                            #endregion
-                            //开始排除数
-                            for (int count = 0; count < list.Count; count++)
-                            {
-                                #region 并排两行包含
-                                //1,2contains. 3,4 contais or not null
-                                if (list1.Contains(list[count]) && list2.Contains(list[count]))
-                                {
-                                    if ((list3.Contains(list[count]) || !string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (list4.Contains(list[count]) || !string.IsNullOrEmpty(MainModel.ShuDu[i, column2])))
-                                    {
-                                        MainModel.ShuDu[i, j] = list[count];
-                                        ShuDu = MainModel.ShuDu;
-                                        ShuDuCalculateEasy();
-                                        //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-                                        return;
-                                    }
-                                }
-                                //3,4contains. 1,2 contains or not null
-                                if (list3.Contains(list[count]) && list4.Contains(list[count]))
-                                {
-                                    if ((list1.Contains(list[count]) || !string.IsNullOrEmpty(MainModel.ShuDu[row1, j])) && (list2.Contains(list[count]) || !string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                    {
-                                        MainModel.ShuDu[i, j] = list[count];
-                                        ShuDu = MainModel.ShuDu;
-                                        ShuDuCalculateEasy();
-
-                                        //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                        return;
-                                    }
-                                }
-                                #endregion
-                                #region 交叉两行包含
-                                //1,3 containts
-                                if ((list1.Contains(list[count])) && (list3.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateEasy();
-
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-
-                                //1,4 contains
-                                if ((list1.Contains(list[count])) && (list4.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateEasy();
-
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-
-                                //2,3 contains
-                                if ((list2.Contains(list[count])) && (list3.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateEasy();
-
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                //2,4 contains
-                                if ((list2.Contains(list[count])) && (list4.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateEasy();
-
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                #endregion
-                                #region 只有单行包含
-
-                                // 1 contains
-                                if ((list1.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateEasy();
-
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                //2 contains
-                                if ((list2.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateEasy();
-
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                //3 contains
-                                if ((list3.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateEasy();
-
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                //4 contains
-                                if ((list4.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateEasy();
-
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                #endregion
-                            }
-                            #endregion
-                        }
+                        return res;
                     }
-
+                    else
+                    {
+                        return false;
+                    }
                 }
             }
+            return true;
         }
-        #endregion
-        #region 中等算法
-        public void ShuDuCalculateMedium()
+        /// <summary>
+        /// 获取位置候选数
+        /// </summary>
+        /// <param name="i"></param>
+        /// <param name="j"></param>
+        /// <returns></returns>
+        private List<string> GetAvailableList(int i, int j)
         {
-            for (int i = 0; i < 9; i++)
+            List<string> list = new List<string>() { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+            #region 行列宫排除
+            //排除列中数字
+            for (int row = 0; row < 9; row++)
             {
-                for (int j = 0; j < 9; j++)
+                if (row == i)
+                    continue;
+                if (list.Contains(MainModel.ShuDu[row, j]))
                 {
-                    if (string.IsNullOrEmpty(MainModel.ShuDu[i, j]))
-                    {
-
-                        List<string> list = new List<string>() { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
-
-                        #region 初级行列宫排除
-                        //排除列中数字
-                        for (int row = 0; row < 9; row++)
-                        {
-                            if (list.Contains(MainModel.ShuDu[row, j]))
-                            {
-                                list.Remove(MainModel.ShuDu[row, j]);
-                            }
-                        }
-
-                        //排除行中数字
-                        for (int column = 0; column < 9; column++)
-                        {
-                            if (list.Contains(MainModel.ShuDu[i, column]))
-                            {
-                                list.Remove(MainModel.ShuDu[i, column]);
-                            }
-                        }
-
-                        //排除宫中数字
-                        for (int row = (i / 3 * 3); row < (i / 3 * 3 + 3); row++)
-                        {
-                            for (int column = (j / 3 * 3); column < (j / 3 * 3 + 3); column++)
-                            {
-                                if (list.Contains(MainModel.ShuDu[row, column]))
-                                {
-                                    list.Remove(MainModel.ShuDu[row, column]);
-                                }
-                            }
-                        }
-                        #endregion
-
-                        //获取唯一解
-                        if (list.Count == 1)
-                        {
-                            #region 初级唯一解算法
-                            MainModel.ShuDu[i, j] = list[0];
-                            ShuDu = MainModel.ShuDu;
-                            ShuDuCalculateMedium();
-                            return;
-                            #endregion
-                        }
-
-                        else
-                        {
-                            #region 行列夹逼算法
-                            //把所求数位置宫格的其他行列整合分类，存储行号列号
-                            List<string> list1, list2, list3, list4;
-                            int row1, row2, column1, column2;
-                            list1 = new List<string>();//row1
-                            list2 = new List<string>();//row2
-                            list3 = new List<string>();//column1
-                            list4 = new List<string>();//column2
-                            row1 = 0;
-                            row2 = 0;
-                            column1 = 0;
-                            column2 = 0;
-                            #region 准备工作，整合数据
-                            //row1 ready
-                            for (int row = (i / 3 * 3); row < (i / 3 * 3 + 2); row++)
-                            {
-                                if (row != i)
-                                {
-                                    for (int num = 0; num < 9; num++)
-                                    {
-                                        list1.Add(MainModel.ShuDu[row, num]);
-                                    }
-                                    row1 = row;
-                                    break;
-                                }
-                            }
-                            //row2
-                            for (int row = (i / 3 * 3 + 2); row > (i / 3 * 3); row--)
-                            {
-                                if (row != i)
-                                {
-                                    for (int num = 0; num < 9; num++)
-                                    {
-                                        list2.Add(MainModel.ShuDu[row, num]);
-                                    }
-                                    row2 = row;
-                                    break;
-                                }
-                            }
-                            //column1
-                            for (int column = (j / 3 * 3); column < (j / 3 * 3 + 2); column++)
-                            {
-                                if (column != j)
-                                {
-                                    for (int num = 0; num < 9; num++)
-                                    {
-                                        list3.Add(MainModel.ShuDu[num, column]);
-                                    }
-                                    column1 = column;
-                                    break;
-                                }
-                            }
-                            //column2
-                            for (int column = (j / 3 * 3 + 2); column > (j / 3 * 3); column--)
-                            {
-                                if (column != j)
-                                {
-                                    for (int num = 0; num < 9; num++)
-                                    {
-                                        list4.Add(MainModel.ShuDu[num, column]);
-                                    }
-                                    column2 = column;
-                                    break;
-                                }
-                            }
-
-                            #endregion
-                            //开始排除数
-                            for (int count = 0; count < list.Count; count++)
-                            {
-                                #region 并排两行包含
-                                //1,2contains. 3,4 contais or not null
-                                if (list1.Contains(list[count]) && list2.Contains(list[count]))
-                                {
-                                    if ((list3.Contains(list[count]) || !string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (list4.Contains(list[count]) || !string.IsNullOrEmpty(MainModel.ShuDu[i, column2])))
-                                    {
-                                        MainModel.ShuDu[i, j] = list[count];
-                                        ShuDu = MainModel.ShuDu;
-                                        ShuDuCalculateMedium();
-                                        //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-                                        return;
-                                    }
-                                }
-                                //3,4contains. 1,2 contains or not null
-                                if (list3.Contains(list[count]) && list4.Contains(list[count]))
-                                {
-                                    if ((list1.Contains(list[count]) || !string.IsNullOrEmpty(MainModel.ShuDu[row1, j])) && (list2.Contains(list[count]) || !string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                    {
-                                        MainModel.ShuDu[i, j] = list[count];
-                                        ShuDu = MainModel.ShuDu;
-                                        ShuDuCalculateMedium();
-                                        //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                        return;
-                                    }
-                                }
-                                #endregion
-                                #region 交叉两行包含
-                                //1,3 containts
-                                if ((list1.Contains(list[count])) && (list3.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateMedium();
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-
-                                //1,4 contains
-                                if ((list1.Contains(list[count])) && (list4.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateMedium();
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-
-                                //2,3 contains
-                                if ((list2.Contains(list[count])) && (list3.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateMedium();
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                //2,4 contains
-                                if ((list2.Contains(list[count])) && (list4.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateMedium();
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                #endregion
-                                #region 只有单行包含
-
-                                // 1 contains
-                                if ((list1.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateMedium();
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                //2 contains
-                                if ((list2.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateMedium();
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                //3 contains
-                                if ((list3.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateMedium();
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                //4 contains
-                                if ((list4.Contains(list[count])) && (!string.IsNullOrEmpty(MainModel.ShuDu[i, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, j])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, j])))
-                                {
-                                    MainModel.ShuDu[i, j] = list[count];
-                                    ShuDu = MainModel.ShuDu;
-                                    ShuDuCalculateMedium();
-                                    //MessageBox.Show("Ba~La~La~La~，我已经解答完毕，这样会改善您的心情吗？(●—●)", "(●—●)");
-
-                                    return;
-                                }
-                                #endregion
-                            }
-                            #endregion
-                        }
-
-                        if (list.Count == 2)
-                        {
-                            #region 未知确定判定法
-                            List<string> list1, list2, list3, list4;
-                            int row1, row2, column1, column2;
-                            list1 = new List<string>();//row 1
-                            list2 = new List<string>();//row2
-                            list3 = new List<string>();//column1
-                            list4 = new List<string>();//column2
-                            row1 = 0;
-                            row2 = 0;
-                            column1 = 0;
-                            column2 = 0;
-
-                            #region 排除确定夹逼未知
-                            #region 列上寻找未知确定
-                            //在列上寻找两个相同数，未知但必包含
-                            for (int row = 0; row < 8; row++)
-                            {
-                                if (string.IsNullOrEmpty(MainModel.ShuDu[row, j]) && (string.IsNullOrEmpty(MainModel.ShuDu[row + 1, j])))
-                                {
-                                    if (row != 2 && row != 5 && row != i && row + 1 != i)//相连空格
-                                    {
-                                        #region 准备工作
-                                        //找出相连空格宫中剩余的一行
-
-                                        row1 = 0;
-                                        row2 = 0;
-                                        column1 = 0;
-                                        column2 = 0;
-
-                                        for (int hang = (row / 3 * 3); hang < (row / 3 * 3 + 3); hang++)
-                                        {
-                                            if (hang != row && hang != row + 1)
-                                            {
-                                                row1 = hang;
-                                            }
-                                        }
-                                        //找出相连空格宫中剩余两列
-                                        for (int column = (j / 3 * 3); column < (j / 3 * 3 + 2); column++)
-                                        {
-                                            if (column != j)
-                                            {
-                                                column1 = column;
-                                                break;
-                                            }
-                                        }
-                                        for (int column = (j / 3 * 3 + 2); column > (j / 3 * 3); column--)
-                                        {
-                                            if (column != j)
-                                            {
-                                                column2 = column;
-                                                break;
-                                            }
-                                        }
-                                        //把一行两列都整合到list中
-                                        //把一行整合到list中
-                                        list1 = new List<string>();//row 1
-                                        list2 = new List<string>();//row2
-                                        list3 = new List<string>();//column1
-                                        list4 = new List<string>();//column2
-
-                                        for (int num = 0; num < 9; num++)
-                                        {
-                                            list1.Add(MainModel.ShuDu[row1, num]);
-                                        }
-                                        //把其他两列整合到list中
-                                        for (int num = 0; num < 9; num++)
-                                        {
-                                            list3.Add(MainModel.ShuDu[num, column1]);
-                                        }
-                                        for (int num = 0; num < 9; num++)
-                                        {
-                                            list4.Add(MainModel.ShuDu[num, column2]);
-                                        }
-                                        #endregion
-                                        //整合完毕，开始判定是否能确定唯一解
-                                        for (int count = 0; count < list.Count; count++)
-                                        {
-                                            if (list1.Contains(list[count]))
-                                            {
-                                                //3 contais
-                                                if (list3.Contains(list[count]) && (!string.IsNullOrEmpty(MainModel.ShuDu[row, column2])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row + 1, column2])))
-                                                {
-                                                    if (IsNotContains(row1, column1, list[count]))
-                                                    {
-                                                        list.Remove(list[count]);
-                                                        MainModel.ShuDu[i, j] = list[0];
-                                                        ShuDu = MainModel.ShuDu;
-                                                        ShuDuCalculateMedium();
-                                                        return;
-                                                    }
-
-                                                }
-                                                //4 contais
-                                                if (list4.Contains(list[count]) && (!string.IsNullOrEmpty(MainModel.ShuDu[row, column1])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row + 1, column1])))
-                                                {
-                                                    if (IsNotContains(row1, column1, list[count]))
-                                                    {
-                                                        list.Remove(list[count]);
-                                                        MainModel.ShuDu[i, j] = list[0];
-                                                        ShuDu = MainModel.ShuDu;
-                                                        ShuDuCalculateMedium();
-                                                        return;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            #endregion
-                            #region 行上寻找未知确定
-                            for (int column = 0; column < 8; column++)
-                            {
-                                if (string.IsNullOrEmpty(MainModel.ShuDu[i, column]) && (string.IsNullOrEmpty(MainModel.ShuDu[i, column + 1])))
-                                {
-                                    if (column != 2 && column != 5 && column != j && column + 1 != j)//相连空格
-                                    {
-                                        #region 准备工作
-
-                                        row1 = 0;
-                                        row2 = 0;
-                                        column1 = 0;
-                                        column2 = 0;
-                                        //找出相连空格宫中剩余的一列
-
-                                        for (int lie = (column / 3 * 3); lie < (column / 3 * 3 + 3); lie++)
-                                        {
-                                            if (lie != column && lie != column + 1)
-                                            {
-                                                column1 = lie;
-                                            }
-                                        }
-                                        //找出相连空格宫中剩余两行
-                                        for (int row = (i / 3 * 3); row < (i / 3 * 3 + 2); row++)
-                                        {
-                                            if (row != i)
-                                            {
-                                                row1 = row;
-                                                break;
-                                            }
-                                        }
-                                        for (int row = (i / 3 * 3 + 2); row > (i / 3 * 3); row--)
-                                        {
-                                            if (row != i)
-                                            {
-                                                row2 = row;
-                                                break;
-                                            }
-                                        }
-                                        //把一列两行都整合到list中
-                                        //把一列整合到list中
-                                        list1 = new List<string>();//row 1
-                                        list2 = new List<string>();//row2
-                                        list3 = new List<string>();//column1
-                                        list4 = new List<string>();//column2
-                                        for (int num = 0; num < 9; num++)
-                                        {
-                                            list3.Add(MainModel.ShuDu[num, column1]);
-                                        }
-                                        //把其他两行整合到list中
-                                        for (int num = 0; num < 9; num++)
-                                        {
-                                            list1.Add(MainModel.ShuDu[row1, num]);
-                                        }
-                                        for (int num = 0; num < 9; num++)
-                                        {
-                                            list2.Add(MainModel.ShuDu[row2, num]);
-                                        }
-                                        #endregion
-                                        //整合完毕，开始判定是否能确定唯一解
-                                        for (int count = 0; count < list.Count; count++)
-                                        {
-                                            if (list3.Contains(list[count]))
-                                            {
-                                                //3 contais
-                                                if (list1.Contains(list[count]) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row2, column + 1])))
-                                                {
-                                                    if (IsNotContains(row1, column1, list[count]))
-                                                    {
-                                                        list.Remove(list[count]);
-                                                        MainModel.ShuDu[i, j] = list[0];
-                                                        ShuDu = MainModel.ShuDu;
-                                                        ShuDuCalculateMedium();
-                                                        return;
-                                                    }
-
-                                                }
-                                                //4 contais
-                                                if (list2.Contains(list[count]) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column])) && (!string.IsNullOrEmpty(MainModel.ShuDu[row1, column + 1])))
-                                                {
-                                                    if (IsNotContains(row1, column1, list[count]))
-                                                    {
-                                                        list.Remove(list[count]);
-                                                        MainModel.ShuDu[i, j] = list[0];
-                                                        ShuDu = MainModel.ShuDu;
-                                                        ShuDuCalculateMedium();
-                                                        return;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            #endregion
-                            #endregion
-                            #endregion
-                        }
-
-                    }
-
+                    list.Remove(MainModel.ShuDu[row, j]);
                 }
             }
-
-        }
-        #endregion
-
-        #region 包含判定
-        public bool IsNotContains(int row, int column, string str)
-        {
-            bool res = true; ;
-            for (int i = (row / 3 * 3); i < (row / 3 * 3 + 3); i++)
+            //排除行中数字
+            for (int column = 0; column < 9; column++)
             {
-                for (int j = (column / 3 * 3); j < (column / 3 * 3 + 3); j++)
+                if (j == column)
+                    continue;
+                if (list.Contains(MainModel.ShuDu[i, column]))
                 {
-                    if (MainModel.ShuDu[i, j] == str)
+                    list.Remove(MainModel.ShuDu[i, column]);
+                }
+            }
+            //排除宫中数字
+            for (int row = (i / 3 * 3); row < (i / 3 * 3 + 3); row++)
+            {
+                for (int column = (j / 3 * 3); column < (j / 3 * 3 + 3); column++)
+                {
+                    if (row == i && column == j)
+                        continue;
+                    if (list.Contains(MainModel.ShuDu[row, column]))
                     {
-                        res = false;
+                        list.Remove(MainModel.ShuDu[row, column]);
                     }
                 }
             }
-            return res;
-
+            #endregion
+            return list;
         }
         #endregion
 
